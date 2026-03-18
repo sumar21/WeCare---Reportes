@@ -27,6 +27,7 @@ const FIELD_ALIASES: Record<string, string> = {
   PlatoPrincipal_GC: "PlatoPrincipalAlmuerzo_GC",
   Postre_GC:         "PostreAlmuerzo_GC",
   Paciente_GC:       "Residente_GC",
+  "Acompa_x00f1_ante_GC": "Acompanante_GC",
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -90,6 +91,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       "ListaMenu_GC",
       "Paciente_GC",           // (Residente_GC)
       "IDResidente_GC",
+      // Acompañantes y personal extra
+      "Acompa_x00f1_ante_GC",
+      "PersonalExtra_GC",
+      "InvitadoAlmuerzo_GC",
+      "InvitadoCena_GC",
       // Status
       "StatusResidente_GC",
       "StatusPlanificacion13_GC",
