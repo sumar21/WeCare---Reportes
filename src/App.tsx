@@ -8,8 +8,9 @@ import { Loader2, RefreshCcw } from 'lucide-react';
 import Sidebar from './components/layout/Sidebar';
 import ReporteIngredientes from './features/metricas/ReporteIngredientes';
 import ReporteComprasConsumo from './features/metricas/ReporteComprasConsumo';
+import ReporteCocina from './features/metricas/ReporteCocina';
 
-export type ReportView = 'ingredientes' | 'compras';
+export type ReportView = 'ingredientes' | 'compras' | 'cocina';
 
 interface AuthUser {
   concatlog: string;
@@ -210,7 +211,7 @@ export default function App() {
         userName={authUser.nombre || authUser.concatlog}
       />
       <main className="flex-1 w-full min-w-0 overflow-y-auto overflow-x-hidden md:h-screen bg-[#f8fafc]">
-        {activeReport === 'ingredientes' ? <ReporteIngredientes /> : <ReporteComprasConsumo />}
+        {activeReport === 'ingredientes' ? <ReporteIngredientes /> : activeReport === 'compras' ? <ReporteComprasConsumo /> : <ReporteCocina />}
       </main>
     </div>
   );

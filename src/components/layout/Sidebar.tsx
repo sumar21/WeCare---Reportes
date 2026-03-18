@@ -1,5 +1,5 @@
 import { useState, type ElementType } from 'react';
-import { LogOut, RefreshCw, ShoppingCart, Layers, Menu, X } from 'lucide-react';
+import { LogOut, RefreshCw, ShoppingCart, Layers, Menu, X, ChefHat } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import type { ReportView } from '@/src/App';
 
@@ -13,6 +13,7 @@ interface SidebarProps {
 const navItems: { id: ReportView; icon: ElementType; label: string }[] = [
   { id: 'ingredientes', icon: Layers,       label: 'Ingredientes' },
   { id: 'compras',      icon: ShoppingCart, label: 'Compras / Consumo' },
+  { id: 'cocina',       icon: ChefHat,     label: 'Planificación Cocina' },
 ];
 
 export default function Sidebar({ activeReport, onNavigate, onLogout, userName }: SidebarProps) {
