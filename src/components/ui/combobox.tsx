@@ -37,6 +37,9 @@ export function Combobox({
   className,
 }: ComboboxProps) {
   const [open, setOpen] = React.useState(false)
+  const selectedOption = options.find(
+    (option) => option.value.toLowerCase() === value.toLowerCase()
+  )
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -49,15 +52,13 @@ export function Combobox({
             className={cn("justify-between bg-white shadow-sm font-normal hover:bg-slate-50", className)}
           >
             <span className="truncate">
-              {value
-                ? options.find((option) => option.value === value)?.label
-                : placeholder}
+              {value ? selectedOption?.label ?? value : placeholder}
             </span>
             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
           </Button>
         }
       />
-      <PopoverContent className={cn("p-0", className)} align="start">
+      <PopoverContent className="w-72 p-0" align="start" sideOffset={6}>
         <Command>
           <CommandInput placeholder={searchPlaceholder} className="h-9" />
           <CommandList>

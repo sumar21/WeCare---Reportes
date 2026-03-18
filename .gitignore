@@ -7,3 +7,4 @@ coverage/
 .git
 .env*
 !.env.example
+.vercel

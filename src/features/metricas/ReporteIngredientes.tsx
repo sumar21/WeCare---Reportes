@@ -1,21 +1,106 @@
-import React, { useMemo, useState } from 'react';
-import { Download, FileSpreadsheet, BarChart3, Loader2, Play } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { FileSpreadsheet, BarChart3, Loader2, Play, Sparkles } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { Button } from '@/components/ui/button';
-import { Combobox } from '@/src/components/ui/combobox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/src/components/ui/table';
-import { mockMenus, mockRecetas, mockIngredientes, mockIngredientesReceta } from '@/src/data/mockData';
 import { ReporteItem } from '@/src/types';
 
 export default function ReporteIngredientes() {
   const [estacion, setEstacion] = useState('Otoño / Invierno');
   const [dieta, setDieta] = useState('GENERAL');
-  const [tipoReporte, setTipoReporte] = useState('Ingredientes');
   const [isLoading, setIsLoading] = useState(false);
+  const [estacionesOptions, setEstacionesOptions] = useState<Array<{ label: string; value: string }>>([
+    { label: 'Otoño / Invierno', value: 'Otoño / Invierno' },
+    { label: 'Primavera / Verano', value: 'Primavera / Verano' },
+  ]);
+  const [dietasOptions, setDietasOptions] = useState<Array<{ label: string; value: string }>>([
+    { label: 'General', value: 'GENERAL' },
+    { label: 'Diabético', value: 'DIABETICO' },
+    { label: 'Adecuado Gástrico', value: 'ADECUADO GASTRICO' },
+    { label: 'Celíaco', value: 'CELIACO' },
+    { label: 'Blando Mecánico', value: 'BLANDO MECANICO' },
+    { label: 'Procesado', value: 'PROCESADO' },
+    { label: 'Líquida', value: 'LIQUIDA' },
+    { label: 'Nada por Boca', value: 'NADA POR BOCA' },
+  ]);
   
   const [menusData, setMenusData] = useState<any[] | null>(null);
   const [recetasData, setRecetasData] = useState<any[]>([]);
   const [ingredientesData, setIngredientesData] = useState<any[]>([]);
   const [ingredientesRecetaData, setIngredientesRecetaData] = useState<any[]>([]);
+
+  const roundUpPositive = (value: number) => {
+    if (!Number.isFinite(value) || value <= 0) return 0;
+    return value < 1 ? 1 : Math.ceil(value);
+  };
+
+  const toKgDisplay = (gramos: number) => roundUpPositive(gramos / 1000);
+
+useEffect(() => {
+    const toLabel = (value: string) =>
+      value
+        .toLocaleLowerCase('es')
+        .replace(/\b\p{L}/gu, (char) => char.toLocaleUpperCase('es'));
+
+    const loadMenuOptions = async () => {
+      try {
+        const response = await fetch('/api/menus?mode=options');
+        if (!response.ok) throw new Error(`API error: ${response.statusText}`);
+
+        const data = await response.json() as
+          | { estaciones?: string[]; dietas?: string[] }
+          | Array<{ Estacion_MP?: string; Tipo_MP?: string }>;
+
+        const legacyRows = Array.isArray(data) ? data : [];
+        const estaciones = Array.isArray(data)
+          ? Array.from(
+              new Set(
+                legacyRows
+                  .map((row) => String(row.Estacion_MP ?? '').trim())
+                  .filter(Boolean)
+              )
+            )
+          : Array.isArray(data.estaciones)
+            ? data.estaciones.filter(Boolean)
+            : [];
+
+        const dietas = Array.isArray(data)
+          ? Array.from(
+              new Set(
+                legacyRows
+                  .map((row) => String(row.Tipo_MP ?? '').trim())
+                  .filter(Boolean)
+              )
+            )
+          : Array.isArray(data.dietas)
+            ? data.dietas.filter(Boolean)
+            : [];
+
+        if (estaciones.length > 0) {
+          const mappedEstaciones = estaciones.map((value) => ({ label: value, value }));
+          setEstacionesOptions(mappedEstaciones);
+
+          if (!estaciones.includes(estacion)) {
+            setEstacion(estaciones[0]);
+          }
+        }
+
+        if (dietas.length > 0) {
+          const mappedDietas = dietas.map((value) => ({ label: toLabel(value), value }));
+          setDietasOptions(mappedDietas);
+
+          if (!dietas.includes(dieta)) {
+            setDieta(dietas[0]);
+          }
+        }
+      } catch (error) {
+        console.error('No se pudieron cargar opciones de ABM Menu Planificado:', error);
+      }
+    };
+
+    loadMenuOptions();
+  }, []);
 
   const handleGenerarReporte = async () => {
     // 1. Limpiar reporte antes de empezar
@@ -23,27 +108,21 @@ export default function ReporteIngredientes() {
     setIsLoading(true);
     
     try {
-      const proxyFetch = async (url: string, body: any) => {
-        const response = await fetch('/api/proxy', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url, body })
-        });
-        if (!response.ok) throw new Error(`Proxy error: ${response.statusText}`);
+      const apiFetch = async (path: string) => {
+        const response = await fetch(path);
+        if (!response.ok) throw new Error(`API error: ${response.statusText}`);
         return await response.json();
       };
 
-      // Ejecutamos las 4 peticiones en paralelo a través del proxy
+      // Ejecutamos las 4 peticiones en paralelo a Graph API
       const [dataMenus, dataRecetas, dataIngredientes, dataIngReceta] = await Promise.all([
-        proxyFetch('https://default20435c5a4f504349a09a856bdf1f70.49.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/fc2c5bf1c5964073b11ce00bf7e04c13/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=GsH_89WZFKHNoHBiAWbwF_a6sxlCyKhUVfNG_4CKHo8', { estacion, dieta }),
-        proxyFetch('https://default20435c5a4f504349a09a856bdf1f70.49.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/f3fe5df02988405b9d71c3bbea67e77e/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=mfHmkDRdK_b36TIVpml-Cotis6nMOaUgbk8zEYJtg4c', {}),
-        proxyFetch('https://default20435c5a4f504349a09a856bdf1f70.49.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/b8baede23a634c02b9ecd8575ce7629b/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=QV6rMWUaKfCloM15TFR1ZZkyEfb0cHK0aNvHpGKTpvs', {}),
-        proxyFetch('https://default20435c5a4f504349a09a856bdf1f70.49.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/edfea79c4ea4413fb5194c9a81857c41/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=N8RZi2JkastR1f-mmIUzJnk_-d1h1ky2oOqkdSjFi70', {})
+        apiFetch(`/api/menus?estacion=${encodeURIComponent(estacion)}&dieta=${encodeURIComponent(dieta)}`),
+        apiFetch('/api/recetas'),
+        apiFetch('/api/ingredientes'),
+        apiFetch('/api/ingredientes-receta'),
       ]);
-      
-      const formatData = (data: any) => Array.isArray(data) ? data : (data.value || [data]);
 
-      setMenusData(formatData(dataMenus).map((item: any) => ({
+      setMenusData(dataMenus.map((item: any) => ({
         id: String(item.ID || ''),
         dia: item.Title || '',
         lista: String(item.Lista_MP || ''),
@@ -53,14 +132,14 @@ export default function ReporteIngredientes() {
         cena: item.Cena_MP || ''
       })));
 
-      setRecetasData(formatData(dataRecetas).map((item: any) => ({
+      setRecetasData(dataRecetas.map((item: any) => ({
         id: item.Receta_RE || '',
         nombre: item.Receta_RE || '',
         kgTotal: Number(String(item.KGTotal_RE || '0').replace(',', '.')),
         tamanoPorcion: Number(item.TamanoPorcion_RE || 1)
       })));
 
-      setIngredientesData(formatData(dataIngredientes).map((item: any) => ({
+      setIngredientesData(dataIngredientes.map((item: any) => ({
         id: item.field_1 || '',
         nombre: item.field_1 || '',
         grupo: item.field_2 || '',
@@ -81,7 +160,7 @@ export default function ReporteIngredientes() {
         estado: item.field_13 || ''
       })));
 
-      setIngredientesRecetaData(formatData(dataIngReceta).map((item: any) => ({
+      setIngredientesRecetaData(dataIngReceta.map((item: any) => ({
         id: String(item.ID || ''),
         recetaId: item.Receta_IR || '',
         ingredienteId: item.Ingrediente || '',
@@ -125,7 +204,7 @@ export default function ReporteIngredientes() {
     });
     const listasOrdenadas = Array.from(listasSet).sort((a, b) => Number(a) - Number(b));
 
-    // 3. Inicializar mapa con TODOS los ingredientes
+    // 3. Inicializar mapa — clave en minúsculas para lookup consistente
     const ingredientesMap = new Map<string, ReporteItem>();
     ingredientesData.forEach(ing => {
       const item: ReporteItem = {
@@ -137,7 +216,7 @@ export default function ReporteIngredientes() {
       listasOrdenadas.forEach(lista => {
         item.cantidadesPorLista[lista] = { A: 0, C: 0 };
       });
-      ingredientesMap.set(ing.nombre, item);
+      ingredientesMap.set(ing.nombre.trim().toLowerCase(), item);
     });
 
     // 4. Iterar sobre menús y actualizar
@@ -147,43 +226,45 @@ export default function ReporteIngredientes() {
 
       const procesarPlatos = (platosStr: string, tipoPlato: 'A' | 'C') => {
         if (!platosStr) return;
-        const recetasIds = platosStr.split('-');
-        
-        recetasIds.forEach(recetaId => {
-          const ingredientesDeReceta = ingredientesRecetaData.filter(ir => ir.recetaId.trim() === recetaId.trim());
-          
-          ingredientesDeReceta.forEach(ir => {
-            const receta = recetasData.find(r => 
-              r.nombre.trim().toLowerCase() === recetaId.trim().toLowerCase()
-            );
-            const ingrediente = ingredientesData.find(i => 
-              i.nombre.trim().toLowerCase() === ir.ingredienteId.trim().toLowerCase()
-            );
+        const recetasIds = platosStr.split('-').map((r: string) => r.trim()).filter(Boolean);
 
-            if (receta && ingrediente) {
-              // FÓRMULA DE CÁLCULO (Equivalente a la lógica de CantidadGR en PowerApps)
-              // IfError((CantidadRecetaKG_IR * 1000) / (KGTotal_RE / TamanoPorcion_RE); 0; RoundUp((CantidadRecetaKG_IR * 1000) / ((KGTotal_RE * 1000) / TamanoPorcion_RE); 0))
-              
-              const divisorNormal = receta.kgTotal / receta.tamanoPorcion;
-              const divisorPowerApps = (receta.kgTotal * 1000) / receta.tamanoPorcion;
-              
-              let cantidadGr = 0;
-              try {
-                // Intentar cálculo normal
-                cantidadGr = Math.ceil((ir.cantidadKg * 1000) / divisorNormal);
-              } catch (e) {
-                // Si falla, usar la lógica de RoundUp del IfError
-                cantidadGr = Math.ceil((ir.cantidadKg * 1000) / divisorPowerApps);
-              }
-              
-              if (cantidadGr > 0) {
-                const item = ingredientesMap.get(ingrediente.nombre);
-                if (item) {
-                  item.cantidadesPorLista[lista][tipoPlato] += cantidadGr;
-                  item.total += cantidadGr;
-                }
-              }
+        recetasIds.forEach(recetaId => {
+          const recetaIdLower = recetaId.toLowerCase();
+
+          const receta = recetasData.find(r => r.nombre.trim().toLowerCase() === recetaIdLower);
+          if (!receta) return;
+
+          const divisor = receta.kgTotal / receta.tamanoPorcion;
+          if (divisor <= 0 || !Number.isFinite(divisor)) return;
+
+          const ingredientesDeReceta = ingredientesRecetaData.filter(
+            ir => ir.recetaId.trim().toLowerCase() === recetaIdLower
+          );
+
+          ingredientesDeReceta.forEach(ir => {
+            // Acumular como float — redondear solo al mostrar (evita errores de ±1)
+            const cantidadGr = (ir.cantidadKg * 1000) / divisor;
+            if (cantidadGr <= 0 || !Number.isFinite(cantidadGr)) return;
+
+            const ingKey = ir.ingredienteId.trim().toLowerCase();
+            const ingrediente = ingredientesData.find(i => i.nombre.trim().toLowerCase() === ingKey);
+            const ingNombre = ingrediente ? ingrediente.nombre : ir.ingredienteId.trim();
+
+            // Crear entrada dinámica si el ingrediente no estaba en ingredientesData
+            if (!ingredientesMap.has(ingKey)) {
+              const newItem: ReporteItem = {
+                ingredienteNombre: ingNombre,
+                cantidadesPorLista: Object.fromEntries(listasOrdenadas.map(l => [l, { A: 0, C: 0 }])),
+                total: 0,
+                promedio: 0,
+              };
+              ingredientesMap.set(ingKey, newItem);
             }
+
+            const item = ingredientesMap.get(ingKey)!;
+            if (!item.cantidadesPorLista[lista]) item.cantidadesPorLista[lista] = { A: 0, C: 0 };
+            item.cantidadesPorLista[lista][tipoPlato] += cantidadGr;
+            item.total += cantidadGr;
           });
         });
       };
@@ -194,166 +275,276 @@ export default function ReporteIngredientes() {
 
     // 5. Calcular promedios y ordenar
     const reporteFinal = Array.from(ingredientesMap.values()).map(item => {
-      item.promedio = listasOrdenadas.length > 0 ? Math.ceil(item.total / listasOrdenadas.length) : 0;
+      const totalKg = listasOrdenadas.reduce((s, l) => {
+        const a = item.cantidadesPorLista[l]?.A || 0;
+        const c = item.cantidadesPorLista[l]?.C || 0;
+        return s + (a > 0 ? roundUpPositive(a / 1000) : 0) + (c > 0 ? roundUpPositive(c / 1000) : 0);
+      }, 0);
+      item.promedio = listasOrdenadas.length > 0 ? roundUpPositive(totalKg / listasOrdenadas.length) : 0;
       return item;
-    }).sort((a, b) => a.ingredienteNombre.localeCompare(b.ingredienteNombre));
+    }).filter(item => item.total > 0)
+      .sort((a, b) => a.ingredienteNombre.localeCompare(b.ingredienteNombre));
 
     return { reporte: reporteFinal, listasUnicas: listasOrdenadas };
   }, [estacion, dieta, menusData, recetasData, ingredientesData, ingredientesRecetaData]); // Dependencias: recalcular si cambian los filtros o los datos
 
+  const getItemTotalKg = (item: ReporteItem) =>
+    listasUnicas.reduce((s, l) => {
+      const a = item.cantidadesPorLista[l]?.A || 0;
+      const c = item.cantidadesPorLista[l]?.C || 0;
+      return s + (a > 0 ? toKgDisplay(a) : 0) + (c > 0 ? toKgDisplay(c) : 0);
+    }, 0);
+
+  const handleExportarExcel = () => {
+    if (!reporte || reporte.length === 0) return;
+
+    const ingredienteMeta = new Map<string, any>(
+      ingredientesData.map((ing) => [String(ing.nombre ?? '').trim().toLowerCase(), ing])
+    );
+
+    const rows: any[] = [];
+
+    reporte.forEach(item => {
+      const meta = ingredienteMeta.get(item.ingredienteNombre.trim().toLowerCase());
+      const row: any = {
+        Ingrediente: item.ingredienteNombre,
+        Grupo: meta?.grupo || '',
+        Subgrupo: meta?.subgrupo || '',
+      };
+      listasUnicas.forEach(lista => {
+        const cantA = item.cantidadesPorLista[lista]?.A || 0;
+        const cantC = item.cantidadesPorLista[lista]?.C || 0;
+        const pad = String(lista).padStart(2, '0');
+        row[`${pad} - ${estacion} A`] = cantA > 0 ? toKgDisplay(cantA) : '';
+        row[`${pad} - ${estacion} C`] = cantC > 0 ? toKgDisplay(cantC) : '';
+      });
+      row['Total'] = getItemTotalKg(item);
+      row['Promedio'] = item.promedio > 0 ? item.promedio : '';
+      rows.push(row);
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+
+    const colWidths = [{ wch: 32 }, { wch: 28 }, { wch: 24 }];
+    listasUnicas.forEach(() => { colWidths.push({ wch: 10 }, { wch: 10 }); });
+    colWidths.push({ wch: 12 }, { wch: 12 });
+    worksheet['!cols'] = colWidths;
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Ingredientes');
+    XLSX.writeFile(workbook, `Reporte_Ingredientes_${estacion}_${dieta}.xlsx`);
+  };
+
   return (
-    <div className="flex flex-col h-full bg-slate-50 p-8 relative">
+    <div className="flex h-full min-h-0 flex-col bg-slate-50">
       {isLoading && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <Loader2 className="h-12 w-12 text-white animate-spin" />
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-md">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 flex flex-col items-center gap-4 max-w-sm">
+            <Loader2 className="h-10 w-10 text-[#549097] animate-spin" />
+            <p className="font-semibold text-slate-900">Generando reporte...</p>
+            <p className="text-sm text-slate-500 text-center">Obteniendo datos de SharePoint</p>
+          </div>
         </div>
       )}
+
       {/* HEADER */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900">Reporte de Ingredientes</h1>
-        <p className="text-slate-500 mt-1">Visualiza y analiza el consumo de ingredientes por lista y tipo de plato.</p>
-      </div>
-
-      {/* CONTROLS CARD */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mb-6">
-        <div className="flex flex-wrap items-center gap-4">
-          <Combobox
-            value={estacion}
-            onChange={setEstacion}
-            placeholder="Estación"
-            className="w-[200px]"
-            options={[
-              { label: "Otoño / Invierno", value: "Otoño / Invierno" },
-              { label: "Primavera / Verano", value: "Primavera / Verano" },
-            ]}
-          />
-          
-          <Combobox
-            value={dieta}
-            onChange={setDieta}
-            placeholder="Dieta"
-            className="w-[200px]"
-            options={[
-              { label: "GENERAL", value: "GENERAL" },
-              { label: "DIABETICO", value: "DIABETICO" },
-              { label: "ADECUADO GASTRICO", value: "ADECUADO GASTRICO" },
-              { label: "CELIACO", value: "CELIACO" },
-              { label: "BLANDO MECANICO", value: "BLANDO MECANICO" },
-              { label: "PROCESADO", value: "PROCESADO" },
-              { label: "LIQUIDA", value: "LIQUIDA" },
-              { label: "NADA POR BOCA", value: "NADA POR BOCA" },
-            ]}
-          />
-          
-          <Button 
-            onClick={handleGenerarReporte} 
-            disabled={isLoading}
-            className="bg-slate-900 hover:bg-slate-800 text-white shadow-sm px-6"
-          >
-            {isLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            ) : (
-              <Play className="h-4 w-4 mr-2" />
-            )}
-            Generar Reporte
-          </Button>
-
-          <div className="ml-auto flex items-center gap-2">
-            <Button variant="outline" className="gap-2 text-slate-600">
-              <FileSpreadsheet className="h-4 w-4" />
-              Exportar
-            </Button>
+      <div className="bg-white border-b border-slate-200 px-6 py-5">
+        <div className="max-w-none">
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="flex items-center gap-2.5 mb-1.5">
+                <div className="p-2 bg-slate-100 rounded-lg text-slate-600 border border-slate-200">
+                  <BarChart3 className="h-5 w-5" />
+                </div>
+                <h1 className="text-2xl font-bold tracking-tight text-slate-900">Reporte de Ingredientes</h1>
+              </div>
+              <p className="text-slate-500 text-sm">Consumo por lista y tipo de comida. Almuerzo (A) y cena (C).</p>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* TABLE CARD */}
-      <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
-        <div className="overflow-x-auto overflow-y-auto flex-1 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
-          <Table className="min-w-max">
-            <TableHeader className="bg-slate-50 sticky top-0 z-10">
-              <TableRow className="hover:bg-transparent border-b border-slate-200">
-                <TableHead className="w-[250px] text-slate-600 font-semibold text-xs uppercase tracking-wider py-4 px-6" rowSpan={2}>
-                  Ingrediente
-                </TableHead>
-                {listasUnicas.map(lista => (
-                  <TableHead key={lista} colSpan={2} className="text-center text-slate-600 font-semibold text-xs uppercase tracking-wider py-3 border-l border-slate-200">
-                    Lista {lista}
-                  </TableHead>
-                ))}
-                <TableHead className="text-center text-slate-900 font-bold text-xs uppercase tracking-wider border-l border-slate-200 px-6" rowSpan={2}>
-                  TOTAL
-                </TableHead>
-                <TableHead className="text-center text-slate-900 font-bold text-xs uppercase tracking-wider border-l border-slate-200 px-6" rowSpan={2}>
-                  PROMEDIO
-                </TableHead>
-              </TableRow>
-              <TableRow className="hover:bg-transparent border-b border-slate-200">
-                {listasUnicas.map(lista => (
-                  <React.Fragment key={`${lista}-sub`}>
-                    <TableHead className="text-center text-slate-500 font-medium text-xs py-2 border-l border-slate-200">A</TableHead>
-                    <TableHead className="text-center text-slate-500 font-medium text-xs py-2 border-l border-slate-200">C</TableHead>
-                  </React.Fragment>
-                ))}
-              </TableRow>
-            </TableHeader>
-            
-            <TableBody>
-              {!menusData ? (
-                <TableRow>
-                  <TableCell colSpan={listasUnicas.length * 2 + 3} className="h-64 text-center text-slate-500">
-                    <div className="flex flex-col items-center justify-center gap-2 p-6 bg-slate-50 rounded-xl border border-slate-200 max-w-sm mx-auto">
-                      <div className="bg-white p-3 rounded-full shadow-sm border border-slate-100">
-                        <Play className="h-6 w-6 text-slate-400" />
-                      </div>
-                      <p className="text-base font-semibold text-slate-700">Listo para generar</p>
-                      <p className="text-sm text-slate-500">Selecciona los filtros y haz clic en "Generar Reporte" para comenzar.</p>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ) : reporte && reporte.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={listasUnicas.length * 2 + 3} className="h-96 text-center text-slate-500">
-                    <div className="flex flex-col items-center justify-center gap-4">
-                      <BarChart3 className="h-10 w-10 text-slate-300" />
-                      <p className="text-lg font-medium text-slate-700">No hay datos</p>
-                      <p className="text-slate-500">No se encontraron resultados para los filtros seleccionados.</p>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                reporte?.map((item) => (
-                  <TableRow key={item.ingredienteNombre} className="hover:bg-slate-50 transition-colors border-b border-slate-100">
-                    <TableCell className="font-medium text-slate-900 px-6 py-4">
-                      {item.ingredienteNombre}
-                    </TableCell>
-                    
-                    {listasUnicas.map(lista => {
-                      const cantA = item.cantidadesPorLista[lista]?.A || 0;
-                      const cantC = item.cantidadesPorLista[lista]?.C || 0;
-                      return (
-                        <React.Fragment key={`${item.ingredienteNombre}-${lista}`}>
-                          <TableCell className="text-center text-slate-600 border-l border-slate-100 py-4">
-                            {cantA > 0 ? cantA : <span className="text-slate-300">-</span>}
-                          </TableCell>
-                          <TableCell className="text-center text-slate-600 border-l border-slate-100 py-4">
-                            {cantC > 0 ? cantC : <span className="text-slate-300">-</span>}
-                          </TableCell>
-                        </React.Fragment>
-                      );
-                    })}
-                    
-                    <TableCell className="text-center font-bold text-slate-900 border-l border-slate-200 px-6 py-4">
-                      {item.total > 0 ? item.total : '-'}
-                    </TableCell>
-                    <TableCell className="text-center font-semibold text-slate-600 border-l border-slate-200 px-6 py-4">
-                      {item.promedio > 0 ? item.promedio : '-'}
-                    </TableCell>
+      {/* MAIN CONTENT */}
+      <div className="flex-1 min-h-0 overflow-hidden px-6 py-5">
+        <div className="h-full min-h-0 flex flex-col gap-4">
+          {/* FILTERS CARD */}
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+              <div className="space-y-1.5 md:col-span-4">
+                <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Estación</label>
+                <Select value={estacion} onValueChange={setEstacion}>
+                  <SelectTrigger className="h-10 w-full rounded-md border-slate-200 bg-white text-sm">
+                    <SelectValue placeholder="Seleccionar estación..." />
+                  </SelectTrigger>
+                  <SelectContent align="start" sideOffset={6}>
+                    {estacionesOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="space-y-1.5 md:col-span-4">
+                <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Tipo de Dieta</label>
+                <Select value={dieta} onValueChange={setDieta}>
+                  <SelectTrigger className="h-10 w-full rounded-md border-slate-200 bg-white text-sm">
+                    <SelectValue placeholder="Seleccionar dieta..." />
+                  </SelectTrigger>
+                  <SelectContent align="start" sideOffset={6}>
+                    {dietasOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex items-end gap-3 md:col-span-4">
+                <Button 
+                  onClick={handleGenerarReporte} 
+                  disabled={isLoading}
+                  className="flex-1 min-w-0 bg-slate-900 hover:bg-slate-800 text-white font-medium shadow-sm h-10"
+                >
+                  {isLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <Play className="h-4 w-4 mr-2" />
+                  )}
+                  Generar Reporte
+                </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={handleExportarExcel}
+                  disabled={!reporte || reporte.length === 0}
+                  className="h-10 px-4 border-slate-200 hover:bg-slate-50 text-slate-700 hover:text-slate-900 shrink-0 shadow-sm"
+                >
+                  <FileSpreadsheet className="h-4 w-4 mr-2" />
+                  Exportar
+                </Button>
+              </div>
+            </div>
+
+            {/* Summary Stats */}
+            {menusData && reporte && (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 pt-3 mt-3 border-t border-slate-200">
+                <div className="bg-[#ebf8f8]/80 rounded-lg p-2 border border-[#cfeeed]">
+                  <p className="text-xs text-[#5fc6c3] font-medium uppercase">Ingredientes</p>
+                  <p className="text-lg leading-tight font-bold text-[#265b59]">{reporte.length}</p>
+                </div>
+                <div className="bg-green-50/80 rounded-lg p-2 border border-green-100">
+                  <p className="text-xs text-green-600 font-medium uppercase">Listas</p>
+                  <p className="text-lg leading-tight font-bold text-green-900">{listasUnicas.length}</p>
+                </div>
+                <div className="bg-sky-50/80 rounded-lg p-2 border border-sky-100">
+                  <p className="text-xs text-sky-700 font-medium uppercase">Total kg</p>
+                  <p className="text-lg leading-tight font-bold text-sky-900">{toKgDisplay(reporte.reduce((sum, item) => sum + item.total, 0))}</p>
+                </div>
+                <div className="bg-amber-50/80 rounded-lg p-2 border border-amber-100">
+                  <p className="text-xs text-orange-600 font-medium uppercase">Promedio</p>
+                  <p className="text-lg leading-tight font-bold text-orange-900">{roundUpPositive(reporte.reduce((sum, item) => sum + item.total, 0) / (reporte.length * listasUnicas.length || 1))}</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* TABLE CARD */}
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex-1 min-h-0">
+            <div className="h-full min-h-0 overflow-x-auto">
+              <div className="h-full min-w-max overflow-y-auto">
+                <Table className="w-full text-xs">
+                <TableHeader className="bg-slate-50 sticky top-0 z-10 shadow-sm">
+                  <TableRow className="hover:bg-transparent border-b border-slate-200">
+                    <TableHead className="w-[250px] text-slate-700 font-semibold text-xs tracking-wide py-3 px-4" rowSpan={2}>
+                      Ingrediente
+                    </TableHead>
+                    {listasUnicas.map(lista => (
+                      <TableHead key={lista} colSpan={2} className="text-center text-slate-700 font-semibold text-xs tracking-wide py-2 border-l border-slate-200 bg-slate-50">
+                        Lista {lista}
+                      </TableHead>
+                    ))}
+                    <TableHead className="text-center text-slate-900 font-bold text-xs tracking-wide border-l border-slate-200 bg-slate-100/50 px-4" rowSpan={2}>
+                      TOTAL (g)
+                    </TableHead>
+                    <TableHead className="text-center text-slate-900 font-bold text-xs tracking-wide border-l border-slate-200 px-4 bg-slate-100/50" rowSpan={2}>
+                      PROMEDIO (g)
+                    </TableHead>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                  <TableRow className="hover:bg-transparent border-b border-slate-200">
+                    {listasUnicas.map(lista => (
+                      <React.Fragment key={`${lista}-sub`}>
+                        <TableHead className="text-center text-slate-500 font-medium text-xs py-2 border-l border-slate-200 bg-slate-50 w-14">Alm.</TableHead>
+                        <TableHead className="text-center text-slate-500 font-medium text-xs py-2 border-l border-slate-200 bg-slate-50 w-14">Cena</TableHead>
+                      </React.Fragment>
+                    ))}
+                  </TableRow>
+                </TableHeader>
+                
+                  <TableBody>
+                  {!menusData ? (
+                    <TableRow>
+                      <TableCell colSpan={listasUnicas.length * 2 + 3} className="h-44">
+                        <div className="flex flex-col items-center justify-center gap-2 py-8">
+                          <div className="bg-slate-50 rounded-full p-3 border border-slate-100">
+                            <Sparkles className="h-6 w-6 text-slate-400" />
+                          </div>
+                          <div className="text-center mt-2">
+                            <p className="text-sm font-medium text-slate-700">Listo para comenzar</p>
+                            <p className="text-xs text-slate-500 mt-1">Configurá los filtros y generá el reporte para ver los datos</p>
+                          </div>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : reporte && reporte.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={listasUnicas.length * 2 + 3} className="h-44">
+                        <div className="flex flex-col items-center justify-center gap-2 py-8">
+                          <BarChart3 className="h-8 w-8 text-slate-300" />
+                          <div className="text-center mt-2">
+                            <p className="text-sm font-medium text-slate-700">Sin resultados</p>
+                            <p className="text-xs text-slate-500 mt-1">No hay datos para los filtros seleccionados</p>
+                          </div>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    reporte?.map((item, idx) => (
+                      <TableRow key={item.ingredienteNombre} className={`hover:bg-slate-100/50 transition-colors border-b border-slate-100 group ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}>
+                        <TableCell className={`font-medium text-slate-800 px-4 py-2.5 sticky left-0 z-20 shadow-[1px_0_0_0_rgba(226,232,240,1)] ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/90'} group-hover:bg-slate-100`}>
+                          {item.ingredienteNombre}
+                        </TableCell>
+                        
+                        {listasUnicas.map(lista => {
+                          const cantA = item.cantidadesPorLista[lista]?.A || 0;
+                          const cantC = item.cantidadesPorLista[lista]?.C || 0;
+                          return (
+                            <React.Fragment key={`${item.ingredienteNombre}-${lista}`}>
+                              <TableCell className={`text-center py-2.5 border-l border-slate-100 ${cantA > 0 ? 'text-slate-700 font-medium' : 'text-slate-300'}`}>
+                                {cantA > 0 ? toKgDisplay(cantA) : '-'}
+                              </TableCell>
+                              <TableCell className={`text-center py-2.5 border-l border-slate-100 ${cantC > 0 ? 'text-slate-700 font-medium' : 'text-slate-300'}`}>
+                                {cantC > 0 ? toKgDisplay(cantC) : '-'}
+                              </TableCell>
+                            </React.Fragment>
+                          );
+                        })}
+                        
+                        <TableCell className="text-center font-semibold text-slate-900 border-l border-slate-200 px-4 py-2.5 bg-slate-50/50">
+                          {getItemTotalKg(item)}
+                        </TableCell>
+                        <TableCell className="text-center font-medium text-slate-700 border-l border-slate-200 px-4 py-2.5 bg-slate-50/50">
+                          {item.promedio > 0 ? item.promedio : '-'}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
