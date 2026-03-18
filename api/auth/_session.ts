@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getGraphToken, SITE_ID } from "../_graph";
+import { getGraphToken, SITE_ID, LIST_IDS } from "../_graph.js";
 
 const COOKIE_NAME = "wecare_session";
 const TTL_SECONDS = 60 * 60 * 12; // 12 hours
@@ -86,10 +86,8 @@ export async function authenticateUser(
   passwordInput: string
 ): Promise<{ concatlog: string; nombre: string } | null> {
   const token = await getGraphToken();
-  const LIST_ID = "d9dc1d33-d288-45bc-b171-8c8366677e56"; // usuarios list
-
   let url: string | null =
-    `https://graph.microsoft.com/v1.0/sites/${SITE_ID()}/lists/${LIST_ID}/items?expand=fields&$top=999`;
+    `https://graph.microsoft.com/v1.0/sites/${SITE_ID()}/lists/${LIST_IDS.usuarios}/items?expand=fields&$top=999`;
   const items: any[] = [];
 
   while (url) {

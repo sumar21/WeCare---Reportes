@@ -1,4 +1,4 @@
-import { fetchAllListItems, LIST_IDS } from "./_graph";
+import { fetchAllListItems, LIST_IDS } from "./_graph.js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 function parseFechaGC(value: string): Date | null {
