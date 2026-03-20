@@ -138,10 +138,8 @@ export default function ReporteComprasConsumo() {
   // Defaults: rango de la semana actual
   const today = new Date();
   const formatISO = (d: Date) => d.toISOString().split('T')[0];
-  const startOfWeek = new Date(today);
-  startOfWeek.setDate(today.getDate() - today.getDay() + 1);
 
-  const [fechaInicio, setFechaInicio] = useState(formatISO(startOfWeek));
+  const [fechaInicio, setFechaInicio] = useState(formatISO(today));
   const [fechaFin, setFechaFin]       = useState(formatISO(today));
   const [isLoading, setIsLoading]     = useState(false);
   const [error, setError]             = useState<string | null>(null);
@@ -352,6 +350,7 @@ export default function ReporteComprasConsumo() {
       receta: string;
       recetaKey: string;
       meal: 'A' | 'C';
+      curso: string;
       tipoMenu: string;
       lista: string;
       diaKey: string;
@@ -384,45 +383,52 @@ export default function ReporteComprasConsumo() {
       if (!persona) persona = String(plan.IDResidente_GC || '');
       const fechaDisplay = String(plan.Fecha_GC || '').trim();
 
-      const getRecetasFromMenu = (
+      const buildDishesWithCurso = (
+        turno: 'A' | 'C',
         concatenado: string | undefined,
-        ...cursos: (string | undefined)[]
-      ): string[] => {
-        // Unión de campo concatenado + campos individuales, deduplicado
-        const seen = new Map<string, string>();
-        const add = (src: string | undefined) => {
-          String(src || '').split('-').map((r) => r.trim()).filter(Boolean)
-            .forEach((r) => { const k = normalizeKey(r); if (!seen.has(k)) seen.set(k, r); });
-        };
-        add(concatenado);
-        cursos.forEach(add);
-        return Array.from(seen.values());
+        cursoFields: [string, string | undefined][],
+      ) => {
+        const seen = new Set<string>();
+        // Primero: campos individuales con info de curso
+        for (const [curso, fieldValue] of cursoFields) {
+          String(fieldValue || '').split('-').map((r) => r.trim()).filter(Boolean)
+            .forEach((receta) => {
+              const k = normalizeKey(receta);
+              if (!seen.has(k)) {
+                seen.add(k);
+                dishes.push({ receta, recetaKey: k, meal: turno, curso, tipoMenu, lista, diaKey, persona, fechaDisplay });
+              }
+            });
+        }
+        // Fallback: concatenado para recetas no cubiertas
+        String(concatenado || '').split('-').map((r) => r.trim()).filter(Boolean)
+          .forEach((receta) => {
+            const k = normalizeKey(receta);
+            if (!seen.has(k)) {
+              seen.add(k);
+              dishes.push({ receta, recetaKey: k, meal: turno, curso: 'Menu', tipoMenu, lista, diaKey, persona, fechaDisplay });
+            }
+          });
       };
 
       if (ALLOWED_STATUS.has(String(plan.Status_GC || '').trim())) {
-        getRecetasFromMenu(
-          plan.MenuAlmuerzo_GC,
-          plan.EntradaAlmuerzo_GC,
-          plan.PlatoPrincipalAlmuerzo_GC,
-          plan.GuarnicionAlmuerzo_GC,
-          plan.SalsaAlmuerzo_GC,
-          plan.PostreAlmuerzo_GC,
-        ).forEach((receta) => {
-          dishes.push({ receta, recetaKey: normalizeKey(receta), meal: 'A', tipoMenu, lista, diaKey, persona, fechaDisplay });
-        });
+        buildDishesWithCurso('A', plan.MenuAlmuerzo_GC, [
+          ['Entrada', plan.EntradaAlmuerzo_GC],
+          ['Plato principal', plan.PlatoPrincipalAlmuerzo_GC],
+          ['Guarnicion', plan.GuarnicionAlmuerzo_GC],
+          ['Salsa', plan.SalsaAlmuerzo_GC],
+          ['Postre', plan.PostreAlmuerzo_GC],
+        ]);
       }
 
       if (ALLOWED_STATUS.has(String(plan.StatusCena_GC || '').trim())) {
-        getRecetasFromMenu(
-          plan.MenuCena_GC,
-          plan.EntradaCena_GC,
-          plan.PrincipalCena_GC,
-          plan.GuarnicionCena_GC,
-          plan.SalsaCena_GC,
-          plan.PostreCena_GC,
-        ).forEach((receta) => {
-          dishes.push({ receta, recetaKey: normalizeKey(receta), meal: 'C', tipoMenu, lista, diaKey, persona, fechaDisplay });
-        });
+        buildDishesWithCurso('C', plan.MenuCena_GC, [
+          ['Entrada', plan.EntradaCena_GC],
+          ['Plato principal', plan.PrincipalCena_GC],
+          ['Guarnicion', plan.GuarnicionCena_GC],
+          ['Salsa', plan.SalsaCena_GC],
+          ['Postre', plan.PostreCena_GC],
+        ]);
       }
     });
 
@@ -439,6 +445,7 @@ export default function ReporteComprasConsumo() {
     type Detail = {
       ingrediente: string;
       receta: string;
+      curso: string;
       dieta: string;
       lista: string;
       unit: string;
@@ -463,6 +470,7 @@ export default function ReporteComprasConsumo() {
         detail.push({
           ingrediente: ir.ingredienteId,
           receta: dish.receta,
+          curso: dish.curso,
           dieta: dish.tipoMenu,
           lista: dish.lista,
           unit: normalizeUnit(ir.unidadMedida),
@@ -550,12 +558,20 @@ export default function ReporteComprasConsumo() {
         fecha: d.fecha,
         persona: d.persona,
         turno: d.turno,
+        curso: d.curso,
         receta: d.receta,
         ingrediente: d.ingrediente,
         cantidadGR: Math.round(d.cantidadGR * 100) / 100,
         unit: d.unit,
       }))
-      .sort((a, b) => a.fecha.localeCompare(b.fecha) || a.persona.localeCompare(b.persona, 'es') || a.turno.localeCompare(b.turno) || a.receta.localeCompare(b.receta, 'es'));
+      .sort((a, b) => {
+        const cursoOrder: Record<string, number> = { Entrada: 0, 'Plato principal': 1, Guarnicion: 2, Salsa: 3, Postre: 4, Menu: 5 };
+        return a.fecha.localeCompare(b.fecha)
+          || a.persona.localeCompare(b.persona, 'es')
+          || a.turno.localeCompare(b.turno)
+          || (cursoOrder[a.curso] ?? 9) - (cursoOrder[b.curso] ?? 9)
+          || a.receta.localeCompare(b.receta, 'es');
+      });
 
     return { rows, detail: detailForExport };
   }, [planificaciones, recetasData, ingredientesData, ingredientesRecetaData, fechaInicio, fechaFin]);
@@ -597,6 +613,7 @@ export default function ReporteComprasConsumo() {
       Fecha: d.fecha,
       Persona: d.persona,
       Turno: d.turno,
+      Curso: d.curso,
       Receta: d.receta,
       Ingrediente: d.ingrediente,
       'Cantidad (gr)': d.cantidadGR,
@@ -605,7 +622,7 @@ export default function ReporteComprasConsumo() {
     if (detailRows.length > 0) {
       const wsDetail = XLSX.utils.json_to_sheet(detailRows);
       wsDetail['!cols'] = [
-        { wch: 14 }, { wch: 28 }, { wch: 12 },
+        { wch: 14 }, { wch: 28 }, { wch: 12 }, { wch: 18 },
         { wch: 36 }, { wch: 28 }, { wch: 16 }, { wch: 8 },
       ];
       XLSX.utils.book_append_sheet(workbook, wsDetail, 'Detalle');

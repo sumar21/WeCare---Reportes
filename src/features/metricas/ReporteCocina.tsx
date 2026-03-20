@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { FileSpreadsheet, Loader2, Play, ChevronDownIcon, ChefHat } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { format, addDays, differenceInDays } from 'date-fns';
+import { format, addDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
@@ -105,8 +105,7 @@ export default function ReporteCocina() {
   const fechaFinDate = fechaFin ? fromISODate(fechaFin) : undefined;
   const genInicioDate = generatedInicio ? fromISODate(generatedInicio) : undefined;
   const genFinDate = generatedFin ? fromISODate(generatedFin) : undefined;
-  const maxDays = 15;
-  const rangeOk = fechaInicioDate && fechaFinDate && differenceInDays(fechaFinDate, fechaInicioDate) <= maxDays && fechaFinDate >= fechaInicioDate;
+  const rangeOk = fechaInicioDate && fechaFinDate && fechaFinDate >= fechaInicioDate;
 
   const handleGenerar = async () => {
     if (!fechaInicio || !fechaFin) return;
@@ -212,13 +211,14 @@ export default function ReporteCocina() {
     const rows: (string | number)[][] = [];
     for (const turno of ['Almuerzo', 'Cena'] as const) {
       rows.push([turno.toUpperCase()]);
-      rows.push(['Curso', ...dates.map(fmtDate)]);
-      for (const curso of CURSOS) rows.push([curso, ...dates.map((dk) => formatCell(grid[dk]?.[turno]?.[curso]))]);
+      rows.push(['Fecha', ...CURSOS]);
+      for (const dk of dates) rows.push([fmtDate(dk), ...CURSOS.map((curso) => formatCell(grid[dk]?.[turno]?.[curso]))]);
       rows.push([]);
     }
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet(rows);
-    const colWidths = rows.reduce((w, row) => { row.forEach((c, i) => { w[i] = Math.max(w[i] || 10, Math.min(String(c || '').length + 2, 80)); }); return w; }, [] as number[]);
+    const colWidths: number[] = [];
+    rows.forEach((row) => { row.forEach((c, i) => { colWidths[i] = Math.max(colWidths[i] || 10, Math.min(String(c || '').length + 2, 80)); }); });
     ws['!cols'] = colWidths.map((w) => ({ wch: w }));
     XLSX.utils.book_append_sheet(wb, ws, `Cocina ${selectedDieta}`.slice(0, 31));
     XLSX.writeFile(wb, `Reporte_Cocina_${fechaInicio}_${fechaFin}_${selectedDieta}.xlsx`);
@@ -265,7 +265,6 @@ export default function ReporteCocina() {
                     if (!date) return;
                     setFechaInicio(toISODate(date));
                     if (fechaFinDate && date > fechaFinDate) setFechaFin(toISODate(date));
-                    if (fechaFinDate && differenceInDays(fechaFinDate, date) > maxDays) setFechaFin(toISODate(addDays(date, maxDays)));
                     if (!fechaFin) setFechaFin(toISODate(date));
                   }}
                 />
@@ -285,8 +284,7 @@ export default function ReporteCocina() {
                 <Calendar mode="single" selected={fechaFinDate} defaultMonth={fechaFinDate} locale={es} initialFocus
                   onSelect={(date) => {
                     if (!date) return;
-                    if (fechaInicioDate && differenceInDays(date, fechaInicioDate) > maxDays) setFechaFin(toISODate(addDays(fechaInicioDate, maxDays)));
-                    else if (fechaInicioDate && date < fechaInicioDate) setFechaFin(toISODate(fechaInicioDate));
+                    if (fechaInicioDate && date < fechaInicioDate) setFechaFin(toISODate(fechaInicioDate));
                     else setFechaFin(toISODate(date));
                   }}
                 />
